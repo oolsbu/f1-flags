@@ -1,65 +1,421 @@
-import Image from "next/image";
+"use client";
+import Footer from "@/components/footer";
+import Header from "@/components/header";
+import {
+  pauseReplayPoller,
+  playReplayPoller,
+  seekReplayPoller,
+  socket,
+  startLivePoller,
+  startReplayPoller,
+  stopPoller,
+} from "@/app/socket";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReplayTimeline, TimelineEvent } from "@/types/socket";
 
-export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+const FLAG_COLORS: Record<number, string> = {
+  1: "#00c853", // green
+  2: "#ffea00", // yellow
+  3: "#ff1744", // red
+  4: "#ff9100", // safety car (orange)
+  5: "#e040fb", // vsc (purple)
+};
+
+const flagLabel = (flag: number) => {
+  switch (flag) {
+    case 1:
+      return "Green";
+    case 2:
+      return "Yellow";
+    case 3:
+      return "Red";
+    case 4:
+      return "SC";
+    case 5:
+      return "VSC";
+    default:
+      return `Flag ${flag}`;
+  }
+};
+
+const formatElapsed = (ms: number) => {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+const formatDatetime = (epochMs: number) => {
+  const d = new Date(epochMs);
+  return d.toLocaleString("en-GB", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+};
+
+const Page = () => {
+  const [flag, setFlag] = useState(0);
+  const [replayDurationSec, setReplayDurationSec] = useState(60);
+  const [realtime, setRealtime] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [progress, setProgress] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [replayActive, setReplayActive] = useState(false);
+  const [firstTimestamp, setFirstTimestamp] = useState(0);
+  const [realSpanMs, setRealSpanMs] = useState(0);
+  const [totalDurationMs, setTotalDurationMs] = useState(0);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    socket.emit("status");
+
+    socket.on("flag", (data: number) => setFlag(data));
+
+    socket.on("replay:timeline", (data: ReplayTimeline) => {
+      setTimeline(data.events);
+      setFirstTimestamp(data.firstTimestamp);
+      setRealSpanMs(data.realSpanMs);
+      setTotalDurationMs(data.totalDurationMs);
+      setReplayActive(true);
+    });
+
+    socket.on("replay:progress", (pos: number) => {
+      if (!dragging.current) setProgress(pos);
+    });
+
+    socket.on("poller:status", (status) => {
+      setPlaying(status.replayPlaying ?? false);
+      if (!status.running) {
+        setReplayActive(false);
+      }
+    });
+
+    return () => {
+      socket.off("flag");
+      socket.off("replay:timeline");
+      socket.off("replay:progress");
+      socket.off("poller:status");
+    };
+  }, []);
+
+  const posFromEvent = useCallback((e: React.MouseEvent | MouseEvent) => {
+    if (!trackRef.current) return 0;
+    const rect = trackRef.current.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  }, []);
+
+  const onTrackMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      dragging.current = true;
+      const pos = posFromEvent(e);
+      setProgress(pos);
+      seekReplayPoller(pos);
+
+      const onMove = (ev: MouseEvent) => {
+        const p = posFromEvent(ev);
+        setProgress(p);
+        seekReplayPoller(p);
+      };
+      const onUp = () => {
+        dragging.current = false;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [posFromEvent],
   );
-}
+
+  return (
+    <>
+      <Header />
+
+      <main style={{ padding: "1rem", maxWidth: 800, margin: "0 auto" }}>
+        {/* Current flag display */}
+        <div
+          style={{
+            textAlign: "center",
+            padding: "2rem",
+            marginBottom: "1.5rem",
+            borderRadius: 12,
+            background: FLAG_COLORS[flag] ?? "#333",
+            color: flag === 2 ? "#000" : "#fff",
+            fontSize: "2rem",
+            fontWeight: 700,
+            transition: "background 0.3s",
+          }}
+        >
+          {flag ? flagLabel(flag) : "No flag"}
+        </div>
+
+        {/* Controls row */}
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            marginBottom: "1rem",
+          }}
+        >
+          <button
+            className="btn"
+            onClick={() => startLivePoller({ liveDelayMs: 15000 })}
+          >
+            Live
+          </button>
+          <button
+            className="btn"
+            onClick={() =>
+              startReplayPoller({
+                sessionKey: "latest",
+                replayDurationMs: realtime ? 0 : replayDurationSec * 1000,
+              })
+            }
+          >
+            Replay {realtime ? "(realtime)" : `(${replayDurationSec}s)`}
+          </button>
+          <button className="btn" onClick={stopPoller}>
+            Stop
+          </button>
+
+          {/* Realtime toggle */}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginLeft: "auto",
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <span style={{ fontSize: 14, opacity: 0.7 }}>Realtime</span>
+            <div
+              onClick={() => setRealtime((v) => !v)}
+              style={{
+                width: 40,
+                height: 22,
+                borderRadius: 11,
+                background: realtime ? "#e10600" : "#444",
+                position: "relative",
+                transition: "background 0.2s",
+                cursor: "pointer",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: realtime ? 20 : 2,
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  transition: "left 0.2s",
+                }}
+              />
+            </div>
+          </label>
+
+          {/* Duration input — hidden when realtime */}
+          {!realtime && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 14, opacity: 0.7 }}>Duration (s)</span>
+              <input
+                type="number"
+                min={5}
+                value={replayDurationSec}
+                onChange={(e) =>
+                  setReplayDurationSec(Number(e.target.value) || 60)
+                }
+                style={{
+                  width: 70,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #555",
+                  background: "#1a1a1a",
+                  color: "#fff",
+                  fontSize: 14,
+                }}
+              />
+            </label>
+          )}
+        </div>
+
+        {/* Timeline player */}
+        {replayActive && (
+          <div
+            style={{ background: "#1a1a1a", borderRadius: 12, padding: "1rem" }}
+          >
+            {/* Play/Pause + skip buttons + timestamps */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 8,
+              }}
+            >
+              <button
+                className="btn-icon"
+                onClick={() => {
+                  if (totalDurationMs <= 0) return;
+                  const delta = 15000 / totalDurationMs;
+                  const pos = Math.max(0, progress - delta);
+                  setProgress(pos);
+                  seekReplayPoller(pos);
+                }}
+                title="Rewind 15s"
+                style={{ fontSize: 13 }}
+              >
+                -15
+              </button>
+              <button
+                className="btn-icon"
+                onClick={() =>
+                  playing ? pauseReplayPoller() : playReplayPoller()
+                }
+                title={playing ? "Pause" : "Play"}
+              >
+                {playing ? "⏸" : "▶"}
+              </button>
+              <button
+                className="btn-icon"
+                onClick={() => {
+                  if (totalDurationMs <= 0) return;
+                  const delta = 15000 / totalDurationMs;
+                  const pos = Math.min(1, progress + delta);
+                  setProgress(pos);
+                  seekReplayPoller(pos);
+                }}
+                title="Skip 15s"
+                style={{ fontSize: 13 }}
+              >
+                +15
+              </button>
+
+              {/* Timestamps */}
+              <div
+                style={{
+                  marginLeft: "auto",
+                  textAlign: "right",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  lineHeight: 1.4,
+                  opacity: 0.75,
+                }}
+              >
+                <div>
+                  {formatElapsed(progress * totalDurationMs)} /{" "}
+                  {formatElapsed(totalDurationMs)}
+                </div>
+                <div style={{ opacity: 0.6 }}>
+                  {firstTimestamp > 0 &&
+                    formatDatetime(firstTimestamp + progress * realSpanMs)}
+                </div>
+              </div>
+            </div>
+
+            {/* Scrub track */}
+            <div
+              ref={trackRef}
+              onMouseDown={onTrackMouseDown}
+              style={{
+                position: "relative",
+                height: 32,
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              {/* Background rail */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 14,
+                  left: 0,
+                  right: 0,
+                  height: 4,
+                  borderRadius: 2,
+                  background: "#333",
+                }}
+              />
+
+              {/* Filled portion */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 14,
+                  left: 0,
+                  width: `${progress * 100}%`,
+                  height: 4,
+                  borderRadius: 2,
+                  background: "#e10600",
+                  transition: dragging.current ? "none" : "width 0.1s linear",
+                }}
+              />
+
+              {/* Flag dots */}
+              {timeline.map((evt, i) => (
+                <div
+                  key={i}
+                  title={flagLabel(evt.flag)}
+                  style={{
+                    position: "absolute",
+                    left: `${evt.position * 100}%`,
+                    top: 8,
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: FLAG_COLORS[evt.flag] ?? "#888",
+                    border: "2px solid #1a1a1a",
+                    transform: "translateX(-50%)",
+                    zIndex: 2,
+                    transition: "transform 0.15s",
+                  }}
+                />
+              ))}
+
+              {/* Playhead */}
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${progress * 100}%`,
+                  top: 6,
+                  width: 14,
+                  height: 14,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  border: "2px solid #e10600",
+                  transform: "translateX(-50%)",
+                  zIndex: 3,
+                  boxShadow: "0 0 6px rgba(0,0,0,0.5)",
+                  transition: dragging.current ? "none" : "left 0.1s linear",
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </main>
+
+      <Footer />
+    </>
+  );
+};
+
+export default Page;
