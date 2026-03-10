@@ -1,4 +1,8 @@
+import { createRequire } from "node:module";
+
 const NUM_LEDS = 19;
+
+const require = createRequire(import.meta.url);
 
 const FLAG_COLORS: Record<number, number> = {
   0: 0x000000, // off
@@ -16,17 +20,19 @@ let pixelData: Uint32Array = new Uint32Array(NUM_LEDS);
 export const initLeds = () => {
   try {
     // Dynamic require — only succeeds on Raspberry Pi with native bindings
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const ws281x = require("rpi-ws281x-native");
     const channel = ws281x(NUM_LEDS, { gpio: 18, brightness: 128 });
     pixelData = channel.array;
     render = () => ws281x.render();
     reset = () => ws281x.reset();
     console.log(`[LED] Initialized ${NUM_LEDS} LEDs on GPIO 18`);
-  } catch {
+  } catch (error) {
+    const uid = typeof process.getuid === "function" ? process.getuid() : "n/a";
+    const message = error instanceof Error ? error.message : String(error);
     console.warn(
       "[LED] rpi-ws281x-native unavailable — running in simulation mode",
     );
+    console.warn(`[LED] Init error (uid=${uid}): ${message}`);
   }
 };
 
