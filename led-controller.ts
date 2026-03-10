@@ -18,7 +18,7 @@ export const initLeds = () => {
     // Dynamic require — only succeeds on Raspberry Pi with native bindings
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const ws281x = require("rpi-ws281x-native");
-    const channel = ws281x(NUM_LEDS, { gpio: 18, brightness: 255 });
+    const channel = ws281x(NUM_LEDS, { gpio: 18, brightness: 128 });
     pixelData = channel.array;
     render = () => ws281x.render();
     reset = () => ws281x.reset();
