@@ -13,6 +13,18 @@ const FLAG_COLORS: Record<number, number> = {
   5: 0xe040fb, // VSC (purple)
 };
 
+const FLAG_NAME_TO_NUMBER: Record<string, number> = {
+  CLEAR: 1,
+  GREEN: 1,
+  YELLOW: 2,
+  "DOUBLE YELLOW": 2,
+  RED: 3,
+  "SAFETY CAR": 4,
+  SC: 4,
+  VSC: 5,
+  "VIRTUAL SAFETY CAR": 5,
+};
+
 let render: (() => void) | null = null;
 let reset: (() => void) | null = null;
 let pixelData: Uint32Array = new Uint32Array(NUM_LEDS);
@@ -59,13 +71,24 @@ export const initLeds = () => {
   }
 };
 
-export const setFlag = (flag: number) => {
-  const color = FLAG_COLORS[flag] ?? 0x000000;
+const normalizeFlag = (flag: number | string): number => {
+  if (typeof flag === "number" && Number.isFinite(flag)) return flag;
+  const normalized = String(flag).trim().toUpperCase();
+  return FLAG_NAME_TO_NUMBER[normalized] ?? 0;
+};
+
+export const setFlag = (flag: number | string) => {
+  const normalizedFlag = normalizeFlag(flag);
+  const color = FLAG_COLORS[normalizedFlag] ?? 0x000000;
   for (let i = 0; i < NUM_LEDS; i++) {
     pixelData[i] = color;
   }
   render?.();
-  console.log(`[LED] Flag ${flag} → 0x${color.toString(16).padStart(6, "0")}`);
+  console.log(
+    `[LED] Flag ${String(flag)} (code ${normalizedFlag}) → 0x${color
+      .toString(16)
+      .padStart(6, "0")}`,
+  );
 };
 
 export const resetLeds = () => {
