@@ -19,6 +19,7 @@
     "ws": "^8.18.0"
   },
   "optionalDependencies": {
+    "rpi-ws281x": "^1.1.53",
     "rpi-ws281x-native": "^1.0.0"
   },
   "devDependencies": {
