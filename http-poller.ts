@@ -3,8 +3,10 @@ import {
   broadcastProgress,
   broadcastTimeline,
 } from "./socket.ts";
+import { setFlag as setLedFlag } from "./led-controller.ts";
+import { startSignalR, stopSignalR } from "./signalr-client.ts";
 import type { RaceControl } from "./types/race_control.ts";
-import type { ReplayTimeline, TimelineEvent } from "./types/socket.ts";
+import type { ReplayTimeline } from "./types/socket.ts";
 
 const API = "https://api.openf1.org/v1/race_control";
 
@@ -28,12 +30,14 @@ const emitIfChanged = (flag: number) => {
   if (flag !== lastFlag) {
     lastFlag = flag;
     broadcastFlag(flag);
+    setLedFlag(flag);
   }
 };
 
 const clear = () => {
   if (timerId) clearInterval(timerId);
   timerId = null;
+  stopSignalR();
   mode = null;
   lastFlag = null;
   replayEvents = [];
@@ -42,6 +46,7 @@ const clear = () => {
   replayTotalMs = 0;
   replayFirstTimestamp = 0;
   replayRealSpanMs = 0;
+  setLedFlag(0);
 };
 
 const tickReplay = () => {
@@ -70,24 +75,17 @@ const tickReplay = () => {
   }
 };
 
-const startLive = (intervalMs: number) => {
+/* ── Live mode: SignalR WebSocket with broadcast delay buffer ── */
+
+const startLive = (liveDelayMs: number) => {
   mode = "live";
-
-  const poll = async () => {
-    try {
-      const res = await fetch(`${API}?session_key=latest`);
-      if (!res.ok) return;
-      const items = (await res.json()) as RaceControl[];
-      const last = [...items].reverse().find((i) => i.flag !== null);
-      if (last?.flag != null) emitIfChanged(last.flag);
-    } catch {
-      // ignore transient errors
-    }
-  };
-
-  poll();
-  timerId = setInterval(poll, intervalMs);
+  startSignalR({
+    delayMs: liveDelayMs,
+    onFlag: (flag) => emitIfChanged(flag),
+  });
 };
+
+/* ── Replay mode: OpenF1 API with time-scaled playback ── */
 
 const startReplay = async (sessionKey: string, durationMs?: number) => {
   mode = "replay";
@@ -117,7 +115,6 @@ const startReplay = async (sessionKey: string, durationMs?: number) => {
       delayMs: ((e.ts - flags[0].ts) / span) * target,
     }));
 
-    // Send timeline with metadata to the client
     const timeline: ReplayTimeline = {
       events: replayEvents.map((e) => ({
         flag: e.flag,
@@ -144,12 +141,11 @@ const startReplay = async (sessionKey: string, durationMs?: number) => {
 export const startHttpPoller = ({
   mode: m,
   sessionKey,
-  pollIntervalMs = Number(process.env.HTTP_POLLER_INTERVAL_MS ?? 5000),
+  liveDelayMs = 30000,
   replayDurationMs,
 }: {
   mode: Mode;
   sessionKey?: string;
-  pollIntervalMs?: number;
   liveDelayMs?: number;
   replayDurationMs?: number;
 }) => {
@@ -157,7 +153,7 @@ export const startHttpPoller = ({
   if (m === "replay" && sessionKey) {
     startReplay(sessionKey, replayDurationMs);
   } else {
-    startLive(Math.max(1, pollIntervalMs));
+    startLive(liveDelayMs);
   }
 };
 
@@ -194,15 +190,17 @@ export const seekReplayPoller = (position: number) => {
     } else break;
   }
 
-  // Emit the current flag at this position
-  if (lastFlag !== null) broadcastFlag(lastFlag);
-  broadcastProgress(position);
-
-  // If was playing, keep ticking
-  if (replayPlaying) {
-    tickReplay();
+  if (lastFlag !== null) {
+    broadcastFlag(lastFlag);
+    setLedFlag(lastFlag);
   }
+  broadcastProgress(position);
 };
+
+// If was playing, keep ticking
+if (replayPlaying) {
+  tickReplay();
+}
 
 export const getHttpPollerStatus = () => ({
   running: mode !== null,

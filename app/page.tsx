@@ -5,6 +5,7 @@ import {
   pauseReplayPoller,
   playReplayPoller,
   seekReplayPoller,
+  setLiveDelay,
   socket,
   startLivePoller,
   startReplayPoller,
@@ -64,6 +65,7 @@ const formatDatetime = (epochMs: number) => {
 const Page = () => {
   const [flag, setFlag] = useState(0);
   const [replayDurationSec, setReplayDurationSec] = useState(60);
+  const [broadcastDelaySec, setBroadcastDelaySec] = useState(30);
   const [realtime, setRealtime] = useState(false);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [progress, setProgress] = useState(0);
@@ -169,7 +171,9 @@ const Page = () => {
         >
           <button
             className="btn"
-            onClick={() => startLivePoller({ liveDelayMs: 15000 })}
+            onClick={() =>
+              startLivePoller({ liveDelayMs: broadcastDelaySec * 1000 })
+            }
           >
             Live
           </button>
@@ -187,6 +191,37 @@ const Page = () => {
           <button className="btn" onClick={stopPoller}>
             Stop
           </button>
+
+          {/* Broadcast delay for live mode */}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 14, opacity: 0.7 }}>Delay (s)</span>
+            <input
+              type="number"
+              min={0}
+              max={120}
+              value={broadcastDelaySec}
+              onChange={(e) => {
+                const v = Number(e.target.value) || 0;
+                setBroadcastDelaySec(v);
+                setLiveDelay(v * 1000);
+              }}
+              style={{
+                width: 60,
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #555",
+                background: "#1a1a1a",
+                color: "#fff",
+                fontSize: 14,
+              }}
+            />
+          </label>
 
           {/* Realtime toggle */}
           <label

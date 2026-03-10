@@ -43,3 +43,7 @@ export const seekReplayPoller = (position: number) => {
 export const stopPoller = () => {
   socket.emit("poller:stop");
 };
+
+export const setLiveDelay = (ms: number) => {
+  socket.emit("live:setDelay", ms);
+};
