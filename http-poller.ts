@@ -4,6 +4,7 @@ import {
   broadcastTimeline,
 } from "./socket.ts";
 import { setFlag as setLedFlag } from "./led-controller.ts";
+import { startAnimation, stopAnimation } from "./led-animation.ts";
 import { startSignalR, stopSignalR } from "./signalr-client.ts";
 import type { RaceControl } from "./types/race_control.ts";
 import type {
@@ -94,7 +95,7 @@ const emitIfChanged = (flag: number) => {
   if (flag !== lastFlag) {
     lastFlag = flag;
     broadcastFlag(flag);
-    setLedFlag(flag);
+    startAnimation(flag);
   }
 };
 
@@ -114,6 +115,7 @@ const clear = () => {
   currentReplayDurationMs = undefined;
   currentTimeline = null;
   currentReplayProgress = 0;
+  stopAnimation();
   setLedFlag(0);
 };
 
@@ -278,7 +280,7 @@ export const seekReplayPoller = (position: number) => {
 
   if (lastFlag !== null) {
     broadcastFlag(lastFlag);
-    setLedFlag(lastFlag);
+    startAnimation(lastFlag);
   }
   currentReplayProgress = position;
   broadcastProgress(position);

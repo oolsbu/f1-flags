@@ -4,6 +4,7 @@ import next from "next";
 import { Server } from "socket.io";
 import { setIO } from "./socket.ts";
 import { initLeds, resetLeds } from "./led-controller.ts";
+import { stopAnimation } from "./led-animation.ts";
 import {
   startHttpPoller,
   stopHttpPoller,
@@ -111,6 +112,7 @@ app.prepare().then(() => {
 
   const cleanup = () => {
     stopHttpPoller();
+    stopAnimation();
     resetLeds();
     process.exit();
   };
