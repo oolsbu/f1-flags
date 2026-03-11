@@ -1,10 +1,10 @@
 import { createRequire } from "node:module";
 
-const NUM_LEDS = 19;
+export const NUM_LEDS = 19;
 
 const require = createRequire(import.meta.url);
 
-const FLAG_COLORS: Record<number, number> = {
+export const FLAG_COLORS: Record<number, number> = {
   0: 0x000000, // off
   1: 0x00c853, // green
   2: 0xffea00, // yellow
@@ -70,6 +70,26 @@ export const initLeds = () => {
     // console.warn(`[LED] Init error (uid=${uid}): ${message}`);
   }
 };
+
+/* ── Low-level helpers used by led-animation.ts ── */
+
+/** Set a single LED by index (does NOT render – call renderLeds() after). */
+export const setPixel = (index: number, color: number) => {
+  if (index >= 0 && index < NUM_LEDS) pixelData[index] = color;
+};
+
+/** Push the current pixelData to the hardware. */
+export const renderLeds = () => {
+  render?.();
+};
+
+/** Fill every LED with the same color and render. */
+export const fillAll = (color: number) => {
+  pixelData.fill(color);
+  render?.();
+};
+
+/* ── High-level flag API ── */
 
 const normalizeFlag = (flag: number | string): number => {
   if (typeof flag === "number" && Number.isFinite(flag)) return flag;
