@@ -13,7 +13,64 @@ import {
   stopPoller,
 } from "@/app/socket";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReplaySession, ReplayTimeline, TimelineEvent } from "@/types/socket";
+import type {
+  PollerStatus,
+  ReplaySession,
+  ReplayTimeline,
+  TimelineEvent,
+} from "@/types/socket";
+
+const SETTINGS_KEY = "f1-flags:poller-settings:v1";
+
+interface PersistedSettings {
+  selectedSessionKey: string;
+  replayDurationSec: number;
+  broadcastDelaySec: number;
+  realtime: boolean;
+  lastMode: "live" | "replay";
+}
+
+const defaultSettings: PersistedSettings = {
+  selectedSessionKey: "latest",
+  replayDurationSec: 60,
+  broadcastDelaySec: 30,
+  realtime: false,
+  lastMode: "live",
+};
+
+const readSettings = (): PersistedSettings => {
+  if (typeof window === "undefined") return defaultSettings;
+
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return defaultSettings;
+    const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
+
+    return {
+      selectedSessionKey:
+        typeof parsed.selectedSessionKey === "string"
+          ? parsed.selectedSessionKey
+          : defaultSettings.selectedSessionKey,
+      replayDurationSec:
+        typeof parsed.replayDurationSec === "number" &&
+        Number.isFinite(parsed.replayDurationSec)
+          ? Math.max(5, parsed.replayDurationSec)
+          : defaultSettings.replayDurationSec,
+      broadcastDelaySec:
+        typeof parsed.broadcastDelaySec === "number" &&
+        Number.isFinite(parsed.broadcastDelaySec)
+          ? Math.max(0, parsed.broadcastDelaySec)
+          : defaultSettings.broadcastDelaySec,
+      realtime:
+        typeof parsed.realtime === "boolean"
+          ? parsed.realtime
+          : defaultSettings.realtime,
+      lastMode: parsed.lastMode === "replay" ? "replay" : "live",
+    };
+  } catch {
+    return defaultSettings;
+  }
+};
 
 const FLAG_COLORS: Record<number, string> = {
   1: "#00c853", // green
@@ -64,23 +121,71 @@ const formatDatetime = (epochMs: number) => {
 };
 
 const Page = () => {
+  const initialSettings = readSettings();
   const [flag, setFlag] = useState(0);
-  const [replayDurationSec, setReplayDurationSec] = useState(60);
-  const [broadcastDelaySec, setBroadcastDelaySec] = useState(30);
-  const [realtime, setRealtime] = useState(false);
+  const [replayDurationSec, setReplayDurationSec] = useState(
+    initialSettings.replayDurationSec,
+  );
+  const [broadcastDelaySec, setBroadcastDelaySec] = useState(
+    initialSettings.broadcastDelaySec,
+  );
+  const [realtime, setRealtime] = useState(initialSettings.realtime);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [replayActive, setReplayActive] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [sessions, setSessions] = useState<ReplaySession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
-  const [selectedSessionKey, setSelectedSessionKey] = useState("latest");
+  const [selectedSessionKey, setSelectedSessionKey] = useState(
+    initialSettings.selectedSessionKey,
+  );
   const [firstTimestamp, setFirstTimestamp] = useState(0);
   const [realSpanMs, setRealSpanMs] = useState(0);
   const [totalDurationMs, setTotalDurationMs] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const settingsRef = useRef<PersistedSettings>(initialSettings);
+  const bootstrapDone = useRef(false);
+
+  const persistLastMode = useCallback((mode: "live" | "replay") => {
+    settingsRef.current.lastMode = mode;
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        ...settingsRef.current,
+        lastMode: mode,
+      } satisfies PersistedSettings),
+    );
+  }, []);
+
+  useEffect(() => {
+    settingsRef.current = {
+      selectedSessionKey,
+      replayDurationSec,
+      broadcastDelaySec,
+      realtime,
+      lastMode: settingsRef.current.lastMode,
+    };
+  }, [selectedSessionKey, replayDurationSec, broadcastDelaySec, realtime]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        ...settingsRef.current,
+        selectedSessionKey,
+        replayDurationSec,
+        broadcastDelaySec,
+        realtime,
+      } satisfies PersistedSettings),
+    );
+  }, [selectedSessionKey, replayDurationSec, broadcastDelaySec, realtime]);
 
   useEffect(() => {
     socket.emit("status");
@@ -99,11 +204,61 @@ const Page = () => {
       if (!dragging.current) setProgress(pos);
     });
 
-    socket.on("poller:status", (status) => {
+    socket.on("poller:status", (status: PollerStatus) => {
       setPlaying(status.replayPlaying ?? false);
+
+      if (typeof status.flag === "number") {
+        setFlag(status.flag);
+      }
+
+      if (typeof status.liveDelayMs === "number") {
+        setBroadcastDelaySec(Math.max(0, Math.round(status.liveDelayMs / 1000)));
+      }
+
+      if (status.mode === "replay") {
+        persistLastMode("replay");
+        if (status.sessionKey) {
+          setSelectedSessionKey(status.sessionKey);
+        }
+
+        if (typeof status.replayDurationMs === "number") {
+          if (status.replayDurationMs <= 0) {
+            setRealtime(true);
+          } else {
+            setRealtime(false);
+            setReplayDurationSec(
+              Math.max(5, Math.round(status.replayDurationMs / 1000)),
+            );
+          }
+        }
+
+        if (typeof status.replayProgress === "number" && !dragging.current) {
+          setProgress(status.replayProgress);
+        }
+      } else if (status.mode === "live") {
+        persistLastMode("live");
+      }
+
       if (!status.running) {
         setReplayActive(false);
+        if (bootstrapDone.current) return;
+
+        bootstrapDone.current = true;
+        const saved = settingsRef.current;
+        if (saved.lastMode === "replay") {
+          startReplayPoller({
+            sessionKey: saved.selectedSessionKey,
+            replayDurationMs: saved.realtime ? 0 : saved.replayDurationSec * 1000,
+            liveDelayMs: saved.broadcastDelaySec * 1000,
+          });
+          return;
+        }
+
+        startLivePoller({ liveDelayMs: saved.broadcastDelaySec * 1000 });
+        return;
       }
+
+      bootstrapDone.current = true;
     });
 
     socket.on("sessions:latest", (data: ReplaySession[]) => {
@@ -131,7 +286,7 @@ const Page = () => {
       socket.off("sessions:latest");
       socket.off("sessions:error");
     };
-  }, []);
+  }, [persistLastMode]);
 
   const posFromEvent = useCallback((e: React.MouseEvent | MouseEvent) => {
     if (!trackRef.current) return 0;
@@ -142,6 +297,7 @@ const Page = () => {
   const onTrackMouseDown = useCallback(
     (e: React.MouseEvent) => {
       dragging.current = true;
+      setIsDragging(true);
       const pos = posFromEvent(e);
       setProgress(pos);
       seekReplayPoller(pos);
@@ -153,6 +309,7 @@ const Page = () => {
       };
       const onUp = () => {
         dragging.current = false;
+        setIsDragging(false);
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
       };
@@ -195,21 +352,24 @@ const Page = () => {
         >
           <button
             className="btn"
-            onClick={() =>
-              startLivePoller({ liveDelayMs: broadcastDelaySec * 1000 })
-            }
+            onClick={() => {
+              persistLastMode("live");
+              startLivePoller({ liveDelayMs: broadcastDelaySec * 1000 });
+            }}
           >
             Live
           </button>
           <button
             className="btn"
             disabled={sessionsLoading || sessions.length === 0}
-            onClick={() =>
+            onClick={() => {
+              persistLastMode("replay");
               startReplayPoller({
                 sessionKey: selectedSessionKey,
                 replayDurationMs: realtime ? 0 : replayDurationSec * 1000,
-              })
-            }
+                liveDelayMs: broadcastDelaySec * 1000,
+              });
+            }}
           >
             Replay {realtime ? "(realtime)" : `(${replayDurationSec}s)`}
           </button>
@@ -472,7 +632,7 @@ const Page = () => {
                   height: 4,
                   borderRadius: 2,
                   background: "#e10600",
-                  transition: dragging.current ? "none" : "width 0.1s linear",
+                  transition: isDragging ? "none" : "width 0.1s linear",
                 }}
               />
 
@@ -511,7 +671,7 @@ const Page = () => {
                   transform: "translateX(-50%)",
                   zIndex: 3,
                   boxShadow: "0 0 6px rgba(0,0,0,0.5)",
-                  transition: dragging.current ? "none" : "left 0.1s linear",
+                  transition: isDragging ? "none" : "left 0.1s linear",
                 }}
               />
             </div>

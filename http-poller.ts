@@ -6,7 +6,11 @@ import {
 import { setFlag as setLedFlag } from "./led-controller.ts";
 import { startSignalR, stopSignalR } from "./signalr-client.ts";
 import type { RaceControl } from "./types/race_control.ts";
-import type { ReplaySession, ReplayTimeline } from "./types/socket.ts";
+import type {
+  PollerStatus,
+  ReplaySession,
+  ReplayTimeline,
+} from "./types/socket.ts";
 
 const API = "https://api.openf1.org/v1/race_control";
 const SESSIONS_API = "https://api.openf1.org/v1/sessions";
@@ -17,6 +21,11 @@ type Mode = "live" | "replay";
 let mode: Mode | null = null;
 let timerId: ReturnType<typeof setInterval> | null = null;
 let lastFlag: number | null = null;
+let currentLiveDelayMs = 30000;
+let currentSessionKey: string | undefined;
+let currentReplayDurationMs: number | undefined;
+let currentTimeline: ReplayTimeline | null = null;
+let currentReplayProgress = 0;
 
 // Replay state
 let replayEvents: { flag: number; delayMs: number }[] = [];
@@ -101,6 +110,10 @@ const clear = () => {
   replayTotalMs = 0;
   replayFirstTimestamp = 0;
   replayRealSpanMs = 0;
+  currentSessionKey = undefined;
+  currentReplayDurationMs = undefined;
+  currentTimeline = null;
+  currentReplayProgress = 0;
   setLedFlag(0);
 };
 
@@ -118,7 +131,8 @@ const tickReplay = () => {
 
   // Broadcast progress (0–1)
   if (replayTotalMs > 0) {
-    broadcastProgress(Math.min(1, elapsed / replayTotalMs));
+    currentReplayProgress = Math.min(1, elapsed / replayTotalMs);
+    broadcastProgress(currentReplayProgress);
   }
 
   if (replayIndex >= replayEvents.length) {
@@ -126,6 +140,7 @@ const tickReplay = () => {
     timerId = null;
     replayPlaying = false;
     mode = null;
+    currentReplayProgress = 1;
     broadcastProgress(1);
   }
 };
@@ -134,6 +149,7 @@ const tickReplay = () => {
 
 const startLive = (liveDelayMs: number) => {
   mode = "live";
+  currentLiveDelayMs = liveDelayMs;
   startSignalR({
     delayMs: liveDelayMs,
     onFlag: (flag) => emitIfChanged(flag),
@@ -144,6 +160,8 @@ const startLive = (liveDelayMs: number) => {
 
 const startReplay = async (sessionKey: string, durationMs?: number) => {
   mode = "replay";
+  currentSessionKey = sessionKey;
+  currentReplayDurationMs = durationMs;
 
   try {
     const res = await fetch(
@@ -179,12 +197,14 @@ const startReplay = async (sessionKey: string, durationMs?: number) => {
       realSpanMs: replayRealSpanMs,
       totalDurationMs: replayTotalMs,
     };
+    currentTimeline = timeline;
     broadcastTimeline(timeline);
 
     replayIndex = 0;
     replayStartMs = Date.now();
     replayElapsedMs = 0;
     replayPlaying = true;
+    currentReplayProgress = 0;
 
     tickReplay();
     timerId = setInterval(tickReplay, 100);
@@ -204,6 +224,17 @@ export const startHttpPoller = ({
   liveDelayMs?: number;
   replayDurationMs?: number;
 }) => {
+  // Avoid restarting upstream clients when the requested config already runs.
+  if (
+    mode === m &&
+    ((m === "live" && currentLiveDelayMs === liveDelayMs) ||
+      (m === "replay" &&
+        currentSessionKey === sessionKey &&
+        currentReplayDurationMs === replayDurationMs))
+  ) {
+    return;
+  }
+
   clear();
   if (m === "replay" && sessionKey) {
     startReplay(sessionKey, replayDurationMs);
@@ -249,6 +280,7 @@ export const seekReplayPoller = (position: number) => {
     broadcastFlag(lastFlag);
     setLedFlag(lastFlag);
   }
+  currentReplayProgress = position;
   broadcastProgress(position);
 };
 
@@ -257,11 +289,18 @@ if (replayPlaying) {
   tickReplay();
 }
 
-export const getHttpPollerStatus = () => ({
+export const getHttpPollerStatus = (): PollerStatus => ({
   running: mode !== null,
   mode: mode ?? undefined,
   replayPlaying: mode === "replay" ? replayPlaying : undefined,
+  liveDelayMs: currentLiveDelayMs,
+  sessionKey: currentSessionKey,
+  replayDurationMs: currentReplayDurationMs,
+  replayProgress: mode === "replay" ? currentReplayProgress : undefined,
+  flag: lastFlag ?? 0,
 });
+
+export const getReplayTimeline = () => currentTimeline;
 
 export const fetchLatestReplaySessions = async (
   limit = 12,

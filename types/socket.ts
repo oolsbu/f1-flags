@@ -17,3 +17,16 @@ export interface ReplaySession {
   dateStart: string;
   label: string;
 }
+
+export type PollerMode = "live" | "replay";
+
+export interface PollerStatus {
+  running: boolean;
+  mode?: PollerMode;
+  replayPlaying?: boolean;
+  liveDelayMs?: number;
+  sessionKey?: string;
+  replayDurationMs?: number;
+  replayProgress?: number;
+  flag?: number;
+}
