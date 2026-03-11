@@ -151,14 +151,9 @@ const Page = () => {
 
   const persistLastMode = useCallback((mode: "live" | "replay") => {
     settingsRef.current.lastMode = mode;
-    if (typeof window === "undefined") return;
-
     window.localStorage.setItem(
       SETTINGS_KEY,
-      JSON.stringify({
-        ...settingsRef.current,
-        lastMode: mode,
-      } satisfies PersistedSettings),
+      JSON.stringify(settingsRef.current satisfies PersistedSettings),
     );
   }, []);
 
@@ -170,21 +165,7 @@ const Page = () => {
       realtime,
       lastMode: settingsRef.current.lastMode,
     };
-  }, [selectedSessionKey, replayDurationSec, broadcastDelaySec, realtime]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    window.localStorage.setItem(
-      SETTINGS_KEY,
-      JSON.stringify({
-        ...settingsRef.current,
-        selectedSessionKey,
-        replayDurationSec,
-        broadcastDelaySec,
-        realtime,
-      } satisfies PersistedSettings),
-    );
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsRef.current satisfies PersistedSettings));
   }, [selectedSessionKey, replayDurationSec, broadcastDelaySec, realtime]);
 
   useEffect(() => {

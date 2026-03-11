@@ -4,15 +4,8 @@ import { io } from "socket.io-client";
 
 export const socket = io();
 
-export const startLivePoller = (options?: {
-  pollIntervalMs?: number;
-  liveDelayMs?: number;
-}) => {
-  socket.emit("poller:start", {
-    mode: "live",
-    pollIntervalMs: options?.pollIntervalMs,
-    liveDelayMs: options?.liveDelayMs,
-  });
+export const startLivePoller = (options?: { liveDelayMs?: number }) => {
+  socket.emit("poller:start", { mode: "live", ...options });
 };
 
 export const startReplayPoller = (options: {
@@ -20,12 +13,7 @@ export const startReplayPoller = (options: {
   replayDurationMs: number;
   liveDelayMs?: number;
 }) => {
-  socket.emit("poller:start", {
-    mode: "replay",
-    sessionKey: options.sessionKey,
-    replayDurationMs: options.replayDurationMs,
-    liveDelayMs: options.liveDelayMs,
-  });
+  socket.emit("poller:start", { mode: "replay", ...options });
 };
 
 export const pauseReplayPoller = () => {
