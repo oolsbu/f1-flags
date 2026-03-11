@@ -286,11 +286,6 @@ export const seekReplayPoller = (position: number) => {
   broadcastProgress(position);
 };
 
-// If was playing, keep ticking
-if (replayPlaying) {
-  tickReplay();
-}
-
 export const getHttpPollerStatus = (): PollerStatus => ({
   running: mode !== null,
   mode: mode ?? undefined,

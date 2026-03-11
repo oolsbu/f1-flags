@@ -30,9 +30,6 @@ let reset: (() => void) | null = null;
 let pixelData: Uint32Array = new Uint32Array(NUM_LEDS);
 
 export const initLeds = () => {
-  // const uid = typeof process.getuid === "function" ? process.getuid() : "n/a";
-  const errors: string[] = [];
-
   try {
     // Preferred maintained driver path.
     const ws281x = require("rpi-ws281x");
@@ -42,9 +39,8 @@ export const initLeds = () => {
     reset = () => ws281x.reset();
     console.log(`[LED] Initialized ${NUM_LEDS} LEDs on GPIO 18 via rpi-ws281x`);
     return;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    errors.push(`rpi-ws281x: ${message}`);
+  } catch {
+    /* fall through to legacy driver */
   }
 
   try {
@@ -58,17 +54,13 @@ export const initLeds = () => {
       `[LED] Initialized ${NUM_LEDS} LEDs on GPIO 18 via rpi-ws281x-native`,
     );
     return;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    errors.push(`rpi-ws281x-native: ${message}`);
+  } catch {
+    /* fall through to simulation mode */
   }
 
   console.warn(
     "[LED] No hardware LED driver available — running in simulation mode",
   );
-  for (const message of errors) {
-    // console.warn(`[LED] Init error (uid=${uid}): ${message}`);
-  }
 };
 
 /* ── Low-level helpers used by led-animation.ts ── */
@@ -100,9 +92,7 @@ const normalizeFlag = (flag: number | string): number => {
 export const setFlag = (flag: number | string) => {
   const normalizedFlag = normalizeFlag(flag);
   const color = FLAG_COLORS[normalizedFlag] ?? 0x000000;
-  for (let i = 0; i < NUM_LEDS; i++) {
-    pixelData[i] = color;
-  }
+  pixelData.fill(color);
   render?.();
   console.log(
     `[LED] Flag ${String(flag)} (code ${normalizedFlag}) → 0x${color

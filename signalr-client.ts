@@ -165,16 +165,11 @@ const openSocket = async () => {
 /* ──────────────────── Race-control message handling ──────────────────── */
 
 const handleRC = (data: Record<string, unknown>) => {
-  let msgs: Record<string, unknown>[] = [];
-
-  if (Array.isArray((data as { Messages?: unknown[] }).Messages)) {
-    msgs = (data as { Messages: Record<string, unknown>[] }).Messages;
-  } else {
-    // Incremental update keyed by index
-    msgs = Object.values(data).filter(
-      (v): v is Record<string, unknown> => !!v && typeof v === "object",
-    );
-  }
+  const msgs: Record<string, unknown>[] = Array.isArray(data.Messages)
+    ? (data.Messages as Record<string, unknown>[])
+    : Object.values(data).filter(
+        (v): v is Record<string, unknown> => !!v && typeof v === "object",
+      );
 
   for (const m of msgs) {
     const flag = flagNameToNumber(
