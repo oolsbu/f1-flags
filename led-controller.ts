@@ -83,7 +83,7 @@ export const renderLeds = () => {
   render?.();
 };
 
-/** Fill every LED with the same colour and render. */
+/** Fill every LED with the same color and render. */
 export const fillAll = (color: number) => {
   pixelData.fill(color);
   render?.();

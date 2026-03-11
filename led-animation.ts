@@ -15,7 +15,7 @@
  *   // ctx.segments   – array of { start, length } for each segment
  *   // ctx.setPixel    – set a single LED: setPixel(index, 0xRRGGBB)
  *   // ctx.setSegment  – fill an entire segment: setSegment(segIndex, color)
- *   // ctx.flagColor   – the colour associated with the current flag
+ *   // ctx.flagColor   – the color associated with the current flag
  *   // ctx.tick         – increments every frame
  *   // ctx.elapsed      – milliseconds since the animation started
  *   // ctx.NUM_LEDS     – total number of LEDs on the strip
@@ -30,7 +30,7 @@
  * setFlagAnimation(2, myAnim);
  * ```
  *
- * Any flag without a custom animation will display as a solid colour.
+ * Any flag without a custom animation will display as a solid color.
  */
 
 /* ── helpers re-exported from led-controller ── */
@@ -73,9 +73,9 @@ export interface AnimationContext {
   segments: Readonly<Segment[]>;
   /** Set a single LED by strip index (0-based). */
   setPixel: (index: number, color: number) => void;
-  /** Fill every LED in a segment with one colour. */
+  /** Fill every LED in a segment with one color. */
   setSegment: (segmentIndex: number, color: number) => void;
-  /** The base colour for the active flag. */
+  /** The base color for the active flag. */
   flagColor: number;
   /** Total number of LEDs. */
   NUM_LEDS: number;
@@ -93,7 +93,7 @@ export const defineAnimation = (fn: AnimationFn): AnimationFn => fn;
 
 /* ── Built-in animations ── */
 
-/** Solid colour (no animation – the default fallback). */
+/** Solid color (no animation – the default fallback). */
 export const solidAnimation = defineAnimation((ctx) => {
   for (let i = 0; i < ctx.NUM_LEDS; i++) ctx.setPixel(i, ctx.flagColor);
 });
@@ -188,7 +188,7 @@ export const setFlagAnimation = (flag: number, anim: AnimationFn) => {
   flagAnimations.set(flag, anim);
 };
 
-/** Remove a custom animation (flag will revert to solid colour). */
+/** Remove a custom animation (flag will revert to solid color). */
 export const clearFlagAnimation = (flag: number) => {
   flagAnimations.delete(flag);
 };
