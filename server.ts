@@ -10,6 +10,7 @@ import {
   pauseReplayPoller,
   playReplayPoller,
   seekReplayPoller,
+  fetchLatestReplaySessions,
 } from "./http-poller.ts";
 import { setLiveDelay } from "./signalr-client.ts";
 
@@ -65,6 +66,16 @@ app.prepare().then(() => {
 
     socket.on("status", () => {
       /* reserved for future status queries */
+    });
+
+    socket.on("sessions:latest", async () => {
+      try {
+        const sessions = await fetchLatestReplaySessions();
+        socket.emit("sessions:latest", sessions);
+      } catch (err) {
+        console.error("[IO] Failed to fetch latest sessions:", err);
+        socket.emit("sessions:error", "Failed to load replay sessions");
+      }
     });
 
     socket.on("disconnect", () => {

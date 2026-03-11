@@ -37,6 +37,8 @@ const flagNameToNumber = (flag?: string, message?: string): number | null => {
       return 3;
     case "CHEQUERED":
       return 1;
+    case "BLUE":
+      return null;
     default:
       return null;
   }

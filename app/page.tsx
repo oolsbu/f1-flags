@@ -4,6 +4,7 @@ import Header from "@/components/header";
 import {
   pauseReplayPoller,
   playReplayPoller,
+  requestLatestSessions,
   seekReplayPoller,
   setLiveDelay,
   socket,
@@ -12,7 +13,7 @@ import {
   stopPoller,
 } from "@/app/socket";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReplayTimeline, TimelineEvent } from "@/types/socket";
+import type { ReplaySession, ReplayTimeline, TimelineEvent } from "@/types/socket";
 
 const FLAG_COLORS: Record<number, string> = {
   1: "#00c853", // green
@@ -71,6 +72,10 @@ const Page = () => {
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [replayActive, setReplayActive] = useState(false);
+  const [sessions, setSessions] = useState<ReplaySession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [selectedSessionKey, setSelectedSessionKey] = useState("latest");
   const [firstTimestamp, setFirstTimestamp] = useState(0);
   const [realSpanMs, setRealSpanMs] = useState(0);
   const [totalDurationMs, setTotalDurationMs] = useState(0);
@@ -101,11 +106,30 @@ const Page = () => {
       }
     });
 
+    socket.on("sessions:latest", (data: ReplaySession[]) => {
+      setSessions(data);
+      setSessionsLoading(false);
+      setSessionsError(null);
+      setSelectedSessionKey((prev) => {
+        if (data.some((s) => s.sessionKey === prev)) return prev;
+        return data[0]?.sessionKey ?? "latest";
+      });
+    });
+
+    socket.on("sessions:error", (message: string) => {
+      setSessionsLoading(false);
+      setSessionsError(message || "Failed to load sessions");
+    });
+
+    requestLatestSessions();
+
     return () => {
       socket.off("flag");
       socket.off("replay:timeline");
       socket.off("replay:progress");
       socket.off("poller:status");
+      socket.off("sessions:latest");
+      socket.off("sessions:error");
     };
   }, []);
 
@@ -179,9 +203,10 @@ const Page = () => {
           </button>
           <button
             className="btn"
+            disabled={sessionsLoading || sessions.length === 0}
             onClick={() =>
               startReplayPoller({
-                sessionKey: "latest",
+                sessionKey: selectedSessionKey,
                 replayDurationMs: realtime ? 0 : replayDurationSec * 1000,
               })
             }
@@ -190,6 +215,46 @@ const Page = () => {
           </button>
           <button className="btn" onClick={stopPoller}>
             Stop
+          </button>
+
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 14, opacity: 0.7 }}>Session</span>
+            <select
+              value={selectedSessionKey}
+              onChange={(e) => setSelectedSessionKey(e.target.value)}
+              disabled={sessionsLoading || sessions.length === 0}
+              style={{
+                minWidth: 240,
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #555",
+                background: "#1a1a1a",
+                color: "#fff",
+                fontSize: 14,
+              }}
+            >
+              {sessions.map((session) => (
+                <option key={session.sessionKey} value={session.sessionKey}>
+                  {session.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            className="btn"
+            onClick={() => {
+              setSessionsLoading(true);
+              requestLatestSessions();
+            }}
+          >
+            Refresh Sessions
           </button>
 
           {/* Broadcast delay for live mode */}
@@ -292,6 +357,12 @@ const Page = () => {
             </label>
           )}
         </div>
+
+        {sessionsError && (
+          <div style={{ color: "#ff8a80", marginBottom: "1rem", fontSize: 14 }}>
+            {sessionsError}
+          </div>
+        )}
 
         {/* Timeline player */}
         {replayActive && (

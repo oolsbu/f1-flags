@@ -9,3 +9,11 @@ export interface ReplayTimeline {
   realSpanMs: number;
   totalDurationMs: number;
 }
+
+export interface ReplaySession {
+  sessionKey: string;
+  sessionName: string;
+  meetingName: string;
+  dateStart: string;
+  label: string;
+}

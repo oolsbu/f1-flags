@@ -30,7 +30,7 @@ let reset: (() => void) | null = null;
 let pixelData: Uint32Array = new Uint32Array(NUM_LEDS);
 
 export const initLeds = () => {
-  const uid = typeof process.getuid === "function" ? process.getuid() : "n/a";
+  // const uid = typeof process.getuid === "function" ? process.getuid() : "n/a";
   const errors: string[] = [];
 
   try {
@@ -67,7 +67,7 @@ export const initLeds = () => {
     "[LED] No hardware LED driver available — running in simulation mode",
   );
   for (const message of errors) {
-    console.warn(`[LED] Init error (uid=${uid}): ${message}`);
+    // console.warn(`[LED] Init error (uid=${uid}): ${message}`);
   }
 };
 
