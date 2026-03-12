@@ -47,3 +47,7 @@ export const stopPoller = () => {
 export const setLiveDelay = (ms: number) => {
   socket.emit("live:setDelay", ms);
 };
+
+export const requestLatestSessions = () => {
+  socket.emit("sessions:latest");
+};

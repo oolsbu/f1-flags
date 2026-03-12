@@ -4,12 +4,16 @@ import next from "next";
 import { Server } from "socket.io";
 import { setIO } from "./socket.ts";
 import { initLeds, resetLeds } from "./led-controller.ts";
+import { stopAnimation } from "./led-animation.ts";
 import {
   startHttpPoller,
   stopHttpPoller,
   pauseReplayPoller,
   playReplayPoller,
   seekReplayPoller,
+  fetchLatestReplaySessions,
+  getHttpPollerStatus,
+  getReplayTimeline,
 } from "./http-poller.ts";
 import { setLiveDelay } from "./signalr-client.ts";
 
@@ -28,6 +32,25 @@ app.prepare().then(() => {
 
   io.on("connection", (socket) => {
     console.log("[IO] Client connected");
+
+    const emitSnapshot = () => {
+      const status = getHttpPollerStatus();
+      socket.emit("poller:status", status);
+      if (typeof status.flag === "number") {
+        socket.emit("flag", status.flag);
+      }
+      if (status.mode === "replay") {
+        const timeline = getReplayTimeline();
+        if (timeline) {
+          socket.emit("replay:timeline", timeline);
+        }
+        if (typeof status.replayProgress === "number") {
+          socket.emit("replay:progress", status.replayProgress);
+        }
+      }
+    };
+
+    emitSnapshot();
 
     socket.on("poller:start", (opts) => {
       startHttpPoller(opts);
@@ -64,7 +87,17 @@ app.prepare().then(() => {
     });
 
     socket.on("status", () => {
-      /* reserved for future status queries */
+      emitSnapshot();
+    });
+
+    socket.on("sessions:latest", async () => {
+      try {
+        const sessions = await fetchLatestReplaySessions();
+        socket.emit("sessions:latest", sessions);
+      } catch (err) {
+        console.error("[IO] Failed to fetch latest sessions:", err);
+        socket.emit("sessions:error", "Failed to load replay sessions");
+      }
     });
 
     socket.on("disconnect", () => {
@@ -79,6 +112,7 @@ app.prepare().then(() => {
 
   const cleanup = () => {
     stopHttpPoller();
+    stopAnimation();
     resetLeds();
     process.exit();
   };

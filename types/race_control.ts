@@ -5,7 +5,7 @@ export interface RaceControl {
   driver_number: number | null;
   lap_number: number | null;
   category: string;
-  flag: number | null;
+  flag: string | number | null;
   scope: string | null;
   sector: string | null;
   qualifying_phase: string | null;

@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
 
-const NUM_LEDS = 19;
-const TICK_MS = 120;
-const BLINK_TICKS = 4; // blink toggles every 4 ticks (~480 ms)
+export const NUM_LEDS = 19;
+const TICK_MS = 40; // ~25 fps for smooth animations
+const BLINK_TICKS = 12; // blink toggles every 12 ticks (~480 ms)
 
 const require = createRequire(import.meta.url);
 
@@ -56,6 +56,15 @@ const SEGMENTS: Segment[] = [
 // ---------------------------------------------------------------------------
 
 const IGNORED_FLAG = -1;
+
+export const FLAG_COLORS: Record<number, number> = {
+  0: 0x000000, // off
+  1: 0x00c853, // green
+  2: 0xffea00, // yellow
+  3: 0xff1744, // red
+  4: 0xff9100, // safety car (orange)
+  5: 0xe040fb, // VSC (purple)
+};
 
 const FLAG_NAME_TO_NUMBER: Record<string, number> = {
   CLEAR: 0,
@@ -140,7 +149,6 @@ let reset: (() => void) | null = null;
 let pixelData: Uint32Array = new Uint32Array(NUM_LEDS);
 
 export const initLeds = () => {
-  const uid = typeof process.getuid === "function" ? process.getuid() : "n/a";
   const errors: string[] = [];
 
   try {
@@ -174,9 +182,24 @@ export const initLeds = () => {
   console.warn(
     "[LED] No hardware LED driver available — running in simulation mode",
   );
-  for (const message of errors) {
-    console.warn(`[LED] Init error (uid=${uid}): ${message}`);
-  }
+};
+
+/* ── Low-level helpers used externally ── */
+
+/** Set a single LED by index (does NOT render – call renderLeds() after). */
+export const setPixel = (index: number, color: number) => {
+  if (index >= 0 && index < NUM_LEDS) pixelData[index] = color;
+};
+
+/** Push the current pixelData to the hardware. */
+export const renderLeds = () => {
+  render?.();
+};
+
+/** Fill every LED with the same color and render. */
+export const fillAll = (color: number) => {
+  pixelData.fill(color);
+  render?.();
 };
 
 // ---------------------------------------------------------------------------
@@ -199,15 +222,37 @@ const stopAnimation = () => {
   animationStep = 0;
 };
 
-/** Dim an RGB colour by a 0-1 factor. */
-const dimColor = (color: number, factor: number): number => {
-  const r = Math.round(((color >> 16) & 0xff) * factor);
-  const g = Math.round(((color >> 8) & 0xff) * factor);
-  const b = Math.round((color & 0xff) * factor);
-  return (r << 16) | (g << 8) | b;
+/** Linearly interpolate between two RGB colours. t = 0→a, t = 1→b. */
+const lerpColor = (a: number, b: number, t: number): number => {
+  const ra = (a >> 16) & 0xff,
+    ga = (a >> 8) & 0xff,
+    ba = a & 0xff;
+  const rb = (b >> 16) & 0xff,
+    gb = (b >> 8) & 0xff,
+    bb = b & 0xff;
+  const r = Math.round(ra + (rb - ra) * t);
+  const g = Math.round(ga + (gb - ga) * t);
+  const bl = Math.round(ba + (bb - ba) * t);
+  return (r << 16) | (g << 8) | bl;
 };
 
 // ---- per_segment ----------------------------------------------------------
+// The flowing animation now uses a continuous floating-point position
+// with a smooth gaussian-ish falloff so the colour fades gradually from
+// LED to LED instead of jumping.
+
+/** Number of TICK_MS ticks it takes for the head to travel one LED. */
+const FLOW_TICKS_PER_LED = 6;
+
+/** How wide the glow trail is expressed in LED-widths. */
+const FLOW_TRAIL_WIDTH = 2.5;
+
+/** Gaussian-like brightness falloff: 1 at dist=0, fading toward 0. */
+const glowFalloff = (dist: number): number => {
+  if (dist > FLOW_TRAIL_WIDTH) return 0;
+  const x = dist / FLOW_TRAIL_WIDTH;
+  return Math.max(0, 1 - x * x);
+};
 
 const animatePerSegment = (
   segConfigs: [SegmentConfig, SegmentConfig, SegmentConfig],
@@ -234,14 +279,18 @@ const animatePerSegment = (
           break;
 
         case "flowing": {
-          const trail = dimColor(cfg.color, 0.25);
           for (const arr of [seg.forward, seg.backward]) {
             if (arr.length === 0) continue;
-            for (const led of arr) pixelData[led] = 0x000000;
-            const idx = animationStep % arr.length;
-            const prevIdx = (animationStep - 1 + arr.length) % arr.length;
-            pixelData[arr[idx]] = cfg.color;
-            pixelData[arr[prevIdx]] = trail;
+            // Continuous head position (wraps smoothly)
+            const headPos = (animationStep / FLOW_TICKS_PER_LED) % arr.length;
+            for (let j = 0; j < arr.length; j++) {
+              // Shortest distance around the loop
+              let dist = headPos - j;
+              if (dist < 0) dist += arr.length;
+              if (dist > arr.length / 2) dist = arr.length - dist;
+              const brightness = glowFalloff(dist);
+              pixelData[arr[j]] = lerpColor(0x000000, cfg.color, brightness);
+            }
           }
           break;
         }
