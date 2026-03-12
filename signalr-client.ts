@@ -28,8 +28,9 @@ const flagNameToNumber = (flag?: string, message?: string): number | null => {
 
   switch (f) {
     case "GREEN":
-    case "CLEAR":
       return 1;
+    case "CLEAR":
+      return 0;
     case "YELLOW":
     case "DOUBLE YELLOW":
       return 2;
@@ -37,6 +38,8 @@ const flagNameToNumber = (flag?: string, message?: string): number | null => {
       return 3;
     case "CHEQUERED":
       return 1;
+    case "BLUE":
+      return null;
     default:
       return null;
   }
