@@ -6,6 +6,14 @@ const BLINK_TICKS = 12; // blink toggles every 12 ticks (~480 ms)
 
 const require = createRequire(import.meta.url);
 
+const COLOR_OFF = 0x000000;
+const COLOR_WHITE = 0xffffff;
+const COLOR_GREEN = 0x00c853;
+const COLOR_YELLOW = 0xffea00;
+const COLOR_RED = 0xff1744;
+const COLOR_ORANGE = 0xff9100;
+const COLOR_VSC = 0xe040fb;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -27,10 +35,6 @@ export interface FlagConfig {
   color?: number;
   /** Per-segment configs [seg0, seg1, seg2] for per_segment mode. */
   segments?: [SegmentConfig, SegmentConfig, SegmentConfig];
-  /** Auto-revert to another flag after this many ms. */
-  durationMs?: number;
-  /** Flag code to revert to when durationMs expires. */
-  revertToFlag?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,12 +62,12 @@ const SEGMENTS: Segment[] = [
 const IGNORED_FLAG = -1;
 
 export const FLAG_COLORS: Record<number, number> = {
-  0: 0x000000, // off
-  1: 0x00c853, // green
-  2: 0xffea00, // yellow
-  3: 0xff1744, // red
-  4: 0xff9100, // safety car (orange)
-  5: 0xe040fb, // VSC (purple)
+  0: COLOR_OFF,
+  1: COLOR_GREEN,
+  2: COLOR_YELLOW,
+  3: COLOR_RED,
+  4: COLOR_ORANGE,
+  5: COLOR_VSC,
 };
 
 const FLAG_NAME_TO_NUMBER: Record<string, number> = {
@@ -88,51 +92,49 @@ export const FLAG_CONFIGS: Record<number, FlagConfig> = {
   0: {
     type: "per_segment",
     segments: [
-      { color: 0xff1744, mode: "flowing" },
-      { color: 0xffffff, mode: "static" },
-      { color: 0xff1744, mode: "flowing" },
+      { color: COLOR_RED, mode: "flowing" },
+      { color: COLOR_WHITE, mode: "static" },
+      { color: COLOR_RED, mode: "flowing" },
     ],
   },
-  // GREEN — flowing green for 10 s then revert to CLEAR
+  // GREEN — stays green until a new flag is received
   1: {
     type: "per_segment",
     segments: [
-      { color: 0x00c853, mode: "flowing" },
-      { color: 0x00c853, mode: "flowing" },
-      { color: 0x00c853, mode: "flowing" },
+      { color: COLOR_GREEN, mode: "flowing" },
+      { color: COLOR_GREEN, mode: "flowing" },
+      { color: COLOR_GREEN, mode: "flowing" },
     ],
-    durationMs: 10_000,
-    revertToFlag: 0,
   },
   // YELLOW — flowing
   2: {
     type: "per_segment",
     segments: [
-      { color: 0xffea00, mode: "flowing" },
-      { color: 0xffea00, mode: "flowing" },
-      { color: 0xffea00, mode: "flowing" },
+      { color: COLOR_YELLOW, mode: "flowing" },
+      { color: COLOR_YELLOW, mode: "flowing" },
+      { color: COLOR_YELLOW, mode: "flowing" },
     ],
   },
   // RED — full blink
   3: {
     type: "per_segment",
     segments: [
-      { color: 0xff1744, mode: "blink", blinkGroup: 0 },
-      { color: 0xff1744, mode: "blink", blinkGroup: 0 },
-      { color: 0xff1744, mode: "blink", blinkGroup: 0 },
+      { color: COLOR_RED, mode: "blink", blinkGroup: 0 },
+      { color: COLOR_RED, mode: "blink", blinkGroup: 0 },
+      { color: COLOR_RED, mode: "blink", blinkGroup: 0 },
     ],
   },
   // SAFETY CAR — mirrored segments blink together, standalone blinks on the opposite phase
   4: {
     type: "per_segment",
     segments: [
-      { color: 0xff9100, mode: "blink", blinkGroup: 0 },
-      { color: 0xff9100, mode: "blink", blinkGroup: 1 },
-      { color: 0xff9100, mode: "blink", blinkGroup: 0 },
+      { color: COLOR_ORANGE, mode: "blink", blinkGroup: 0 },
+      { color: COLOR_ORANGE, mode: "blink", blinkGroup: 1 },
+      { color: COLOR_ORANGE, mode: "blink", blinkGroup: 0 },
     ],
   },
   // VSC — each segment blinks one at a time in order
-  5: { type: "blink_sequential", color: 0xe040fb },
+  5: { type: "blink_sequential", color: COLOR_VSC },
 };
 
 /** Update the animation config for a flag at runtime. */
@@ -207,17 +209,12 @@ export const fillAll = (color: number) => {
 // ---------------------------------------------------------------------------
 
 let animationTimer: ReturnType<typeof setInterval> | null = null;
-let revertTimer: ReturnType<typeof setTimeout> | null = null;
 let animationStep = 0;
 
 const stopAnimation = () => {
   if (animationTimer !== null) {
     clearInterval(animationTimer);
     animationTimer = null;
-  }
-  if (revertTimer !== null) {
-    clearTimeout(revertTimer);
-    revertTimer = null;
   }
   animationStep = 0;
 };
@@ -275,7 +272,7 @@ const animatePerSegment = (
           break;
 
         case "off":
-          for (const led of allLeds) pixelData[led] = 0x000000;
+          for (const led of allLeds) pixelData[led] = COLOR_OFF;
           break;
 
         case "flowing": {
@@ -289,7 +286,7 @@ const animatePerSegment = (
               if (dist < 0) dist += arr.length;
               if (dist > arr.length / 2) dist = arr.length - dist;
               const brightness = glowFalloff(dist);
-              pixelData[arr[j]] = lerpColor(0x000000, cfg.color, brightness);
+              pixelData[arr[j]] = lerpColor(COLOR_OFF, cfg.color, brightness);
             }
           }
           break;
@@ -299,7 +296,7 @@ const animatePerSegment = (
           const group = cfg.blinkGroup ?? 0;
           const isOn = group === 0 ? blinkOn : !blinkOn;
           for (const led of allLeds) {
-            pixelData[led] = isOn ? cfg.color : 0x000000;
+            pixelData[led] = isOn ? cfg.color : COLOR_OFF;
           }
           break;
         }
@@ -318,7 +315,7 @@ const animatePerSegment = (
 
 const animateBlinkSequential = (color: number) => {
   const tick = () => {
-    pixelData.fill(0x000000);
+    pixelData.fill(COLOR_OFF);
     const segIdx = animationStep % SEGMENTS.length;
     const seg = SEGMENTS[segIdx];
     for (const led of [...seg.forward, ...seg.backward]) {
@@ -344,16 +341,8 @@ const startConfig = (config: FlagConfig) => {
       if (config.segments) animatePerSegment(config.segments);
       break;
     case "blink_sequential":
-      animateBlinkSequential(config.color ?? 0xffffff);
+      animateBlinkSequential(config.color ?? COLOR_WHITE);
       break;
-  }
-
-  if (config.durationMs != null && config.revertToFlag != null) {
-    const revertFlag = config.revertToFlag;
-    revertTimer = setTimeout(() => {
-      revertTimer = null;
-      setFlag(revertFlag);
-    }, config.durationMs);
   }
 };
 
@@ -378,9 +367,9 @@ export const setFlag = (flag: number | string) => {
   const config: FlagConfig = FLAG_CONFIGS[normalizedFlag] ?? {
     type: "per_segment" as const,
     segments: [
-      { color: 0x000000, mode: "static" as const },
-      { color: 0x000000, mode: "static" as const },
-      { color: 0x000000, mode: "static" as const },
+      { color: COLOR_OFF, mode: "static" as const },
+      { color: COLOR_OFF, mode: "static" as const },
+      { color: COLOR_OFF, mode: "static" as const },
     ],
   };
 
